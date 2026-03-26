@@ -25,8 +25,8 @@ def main():
 
     train_data, val_data, test_data = split_dataset(data)
 
-    train_data, mean, std = normalize(train_data)
-    test_data, _, _ = normalize(test_data, mean, std)
+    train_data, min_val, max_val = normalize(train_data)
+    test_data, _, _ = normalize(test_data, min_val, max_val)
 
     test_set = TrafficDataset(test_data, HISTORY_LEN, PRED_LEN)
     test_loader = DataLoader(test_set, batch_size=BATCH_SIZE, shuffle=False)

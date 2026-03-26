@@ -140,7 +140,7 @@ def split_dataset(data):
     t = len(data)
 
     train_end = int(t * 0.7)
-    val_end = int(t * 0.85)
+    val_end = int(t * 0.8)
 
     train = data[:train_end]
     val = data[train_end:val_end]
@@ -153,14 +153,23 @@ def split_dataset(data):
     return train, val, test
 
 
-def normalize(data, mean=None, std=None):
-    if mean is None:
-        mean = data.mean()
-    if std is None:
-        std = data.std()
+def normalize(data, min_val=None, max_val=None):
+    """
+    Min-Max normalization to [0,1]
+    """
 
-    data = (data - mean) / (std + 1e-8)
-    return data.astype(np.float32), float(mean), float(std)
+    if min_val is None:
+        min_val = float(data.min())
+
+    if max_val is None:
+        max_val = float(data.max())
+
+    if max_val - min_val < 1e-12:
+        data = np.zeros_like(data)
+    else:
+        data = (data - min_val) / (max_val - min_val)
+
+    return data.astype(np.float32), min_val, max_val
 
 
 # =========================================================

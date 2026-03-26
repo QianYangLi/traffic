@@ -39,7 +39,6 @@ def main():
         "data/abilene_xgz",
         feature_type="realOD"
     )
-    data = np.log1p(data)
 
     # =========================================================
     # 3. 按时间顺序切分训练 / 验证 / 测试
@@ -53,8 +52,8 @@ def main():
     # 这里只用训练集的 mean / std
     # 然后同样用于 test 集
     #
-    train_data, mean, std = normalize(train_data)
-    test_data, _, _ = normalize(test_data, mean, std)
+    train_data, min_val, max_val = normalize(train_data)
+    test_data, _, _ = normalize(test_data, min_val, max_val)
 
     # =========================================================
     # 5. 构造测试集

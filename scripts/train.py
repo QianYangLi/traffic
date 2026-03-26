@@ -47,7 +47,7 @@ def main():
     #   xml -> 原来的 G?ANT / XML 流量矩阵数据
     #   xgz -> 新的 Abilene X01~X24.gz 数据
     #
-    dataset_type = "xgz"
+    dataset_type = "xml"
 
     # =========================================================
     # 3. 加载数据
@@ -86,7 +86,6 @@ def main():
             "data/abilene_xgz",
             feature_type="realOD"
         )
-        data = np.log1p(data)
 
     else:
         raise ValueError(f"Unsupported dataset_type: {dataset_type}")
@@ -107,9 +106,9 @@ def main():
     # 只用训练集统计量 (mean, std)
     # 然后用同样的 mean/std 去标准化 val/test
     #
-    train_data, mean, std = normalize(train_data)
-    val_data, _, _ = normalize(val_data, mean, std)
-    test_data, _, _ = normalize(test_data, mean, std)
+    train_data, min_val, max_val = normalize(train_data)
+    val_data, _, _ = normalize(val_data, min_val, max_val)
+    test_data, _, _ = normalize(test_data, min_val, max_val)
 
     # =========================================================
     # 6. 构造滑动窗口数据集
