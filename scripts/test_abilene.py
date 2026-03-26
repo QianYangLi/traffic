@@ -1,6 +1,6 @@
 import sys
 import os
-
+import numpy as np
 # 将项目根目录加入 Python 路径
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
@@ -39,6 +39,7 @@ def main():
         "data/abilene_xgz",
         feature_type="realOD"
     )
+    data = np.log1p(data)
 
     # =========================================================
     # 3. 按时间顺序切分训练 / 验证 / 测试

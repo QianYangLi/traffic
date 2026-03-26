@@ -1,5 +1,6 @@
 import sys
 import os
+import numpy as np
 
 # 把项目根目录加入 Python 路径，保证能找到 data / model / configs
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
@@ -85,6 +86,7 @@ def main():
             "data/abilene_xgz",
             feature_type="realOD"
         )
+        data = np.log1p(data)
 
     else:
         raise ValueError(f"Unsupported dataset_type: {dataset_type}")
