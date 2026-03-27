@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-
+import torch.nn.functional as F
 
 class DiffusionModel(nn.Module):
     def __init__(self, data_dim, cond_dim, T=500):
@@ -36,7 +36,7 @@ class DiffusionModel(nn.Module):
 
         pred = self.net(inp)
 
-        return ((pred - noise) ** 2).mean()
+        return F.smooth_l1_loss(pred, noise)
 
     @torch.no_grad()
     def sample(self, cond, shape):

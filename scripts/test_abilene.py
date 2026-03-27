@@ -1,9 +1,8 @@
 import sys
 import os
-import numpy as np
-# 将项目根目录加入 Python 路径
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
@@ -13,61 +12,31 @@ from data.dataset import (
     normalize,
     TrafficVectorDataset
 )
-
 from model.predictor import TrafficPredictor
-from utils.metrics import rmse, mae, mape
+from utils.metrics import mae, rmse, mape
 from configs.config import HIDDEN_DIM, HISTORY_LEN, PRED_LEN, BATCH_SIZE, SAMPLES
 
 
 def main():
-    # =========================================================
-    # 1. 设备设置
-    # =========================================================
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Using device:", device)
 
-    # =========================================================
-    # 2. 加载 Abilene X01~X24.gz 数据集
-    # =========================================================
-    # README 说明：
-    # - 每个 X*.gz 文件是一周数据
-    # - 每行一个时间点
-    # - 每行 720 个值 = 144 * 5
-    # - 这里默认只取 realOD
-    #
-    data = load_xgz_dataset(
-        "data/abilene_xgz",
-        feature_type="realOD"
-    )
+    data = load_xgz_dataset("data/abilene_xgz", feature_type="realOD")
 
-    # =========================================================
-    # 3. 按时间顺序切分训练 / 验证 / 测试
-    # =========================================================
+    # 如果你训练时加了 log1p，这里必须同样加；如果没加，这里也不要加
+    # data = np.log1p(data)
+
     train_data, val_data, test_data = split_dataset(data)
 
-    # =========================================================
-    # 4. 标准化
-    # =========================================================
-    # 注意：
-    # 这里只用训练集的 mean / std
-    # 然后同样用于 test 集
-    #
     train_data, min_val, max_val = normalize(train_data)
     test_data, _, _ = normalize(test_data, min_val, max_val)
 
-    # =========================================================
-    # 5. 构造测试集
-    # =========================================================
+    print("Normalized train min/max:", train_data.min(), train_data.max())
+    print("Normalized test min/max:", test_data.min(), test_data.max())
+
     test_set = TrafficVectorDataset(test_data, HISTORY_LEN, PRED_LEN)
     test_loader = DataLoader(test_set, batch_size=BATCH_SIZE, shuffle=False)
 
-    # =========================================================
-    # 6. 构建模型
-    # =========================================================
-    # Abilene XGZ 数据集:
-    #   data.shape = [T, 144]
-    # 所以输入维度 dim = 144
-    #
     dim = data.shape[1]
 
     model = TrafficPredictor(
@@ -76,23 +45,9 @@ def main():
         out_dim=dim
     ).to(device)
 
-    # =========================================================
-    # 7. 加载训练好的 Abilene 模型
-    # =========================================================
-    model_path = "best_model_xgz.pt"
-
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(
-            f"Cannot find {model_path}. "
-            f"Please run training first: python -m scripts.train"
-        )
-
-    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.load_state_dict(torch.load("best_model_xgz.pt", map_location=device))
     model.eval()
 
-    # =========================================================
-    # 8. 开始测试
-    # =========================================================
     preds_all = []
     trues_all = []
 
@@ -101,9 +56,13 @@ def main():
             x = x.to(device)
             y = y.to(device)
 
-            # 扩散模型多次采样，然后取平均作为最终预测
             samples = model.predict(x, samples=SAMPLES)
-            pred = torch.stack(samples, dim=0).mean(dim=0)
+
+            # 用中位数比均值更抗异常值
+            pred = torch.stack(samples, dim=0).median(dim=0).values
+
+            # 因为我们定义了归一化范围 [0,1]，这里强制裁剪
+            pred = torch.clamp(pred, 0.0, 1.0)
 
             preds_all.append(pred.cpu())
             trues_all.append(y.squeeze(1).cpu())
@@ -111,9 +70,17 @@ def main():
     preds_all = torch.cat(preds_all, dim=0)
     trues_all = torch.cat(trues_all, dim=0)
 
-    # =========================================================
-    # 9. 输出指标
-    # =========================================================
+    print("Pred min/max:", preds_all.min().item(), preds_all.max().item())
+    print("True min/max:", trues_all.min().item(), trues_all.max().item())
+
+    abs_err = torch.abs(preds_all - trues_all)
+    sq_err = (preds_all - trues_all) ** 2
+
+    print("Abs error min/max:", abs_err.min().item(), abs_err.max().item())
+    print("Mean abs error:", abs_err.mean().item())
+    print("Mean sq error:", sq_err.mean().item())
+    print("Top 10 abs error:", torch.topk(abs_err.flatten(), 10).values)
+
     print("===== Abilene Test Metrics (normalized space) =====")
     print("MAE :", mae(preds_all, trues_all).item())
     print("RMSE:", rmse(preds_all, trues_all).item())
@@ -121,4 +88,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()  
+    main()

@@ -153,11 +153,11 @@ def split_dataset(data):
     return train, val, test
 
 
-def normalize(data, min_val=None, max_val=None):
+def normalize(data, min_val=None, max_val=None, clip=True):
     """
     Min-Max normalization to [0,1]
+    If test/val values exceed training range, clip them into [0,1].
     """
-
     if min_val is None:
         min_val = float(data.min())
 
@@ -165,9 +165,12 @@ def normalize(data, min_val=None, max_val=None):
         max_val = float(data.max())
 
     if max_val - min_val < 1e-12:
-        data = np.zeros_like(data)
+        data = np.zeros_like(data, dtype=np.float32)
     else:
-        data = (data - min_val) / (max_val - min_val)
+        data = (data - min_val) / (max_val - min_val + 1e-8)
+
+    if clip:
+        data = np.clip(data, 0.0, 1.0)
 
     return data.astype(np.float32), min_val, max_val
 
