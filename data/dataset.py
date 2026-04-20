@@ -153,26 +153,53 @@ def split_dataset(data):
     return train, val, test
 
 
-def normalize(data, min_val=None, max_val=None, clip=True):
+def normalize(data, min_val=None, max_val=None):
     """
-    Min-Max normalization to [0,1]
-    If test/val values exceed training range, clip them into [0,1].
+    Min-Max normalization, matching sklearn MinMaxScaler behavior:
+    normalize each feature/column independently.
+
+    For XML data [T, N, N]:
+        reshape to [T, N*N], do per-column Min-Max, then reshape back.
+    For vector data [T, D]:
+        do per-column Min-Max directly.
+
+    Note:
+        This function does NOT clip values, matching sklearn's default transform behavior.
     """
+
+    original_shape = data.shape
+
+    # XML data: [T, N, N] -> [T, N*N]
+    if data.ndim == 3:
+        T, N, _ = data.shape
+        data_2d = data.reshape(T, -1)   # [T, N*N]
+
+    # Vector data: [T, D]
+    elif data.ndim == 2:
+        data_2d = data                  # [T, D]
+
+    else:
+        raise ValueError(f"Unsupported data shape: {data.shape}")
+
+    # fit on training data
     if min_val is None:
-        min_val = float(data.min())
+        min_val = data_2d.min(axis=0, keepdims=True)   # [1, D]
 
     if max_val is None:
-        max_val = float(data.max())
+        max_val = data_2d.max(axis=0, keepdims=True)   # [1, D]
 
-    if max_val - min_val < 1e-12:
-        data = np.zeros_like(data, dtype=np.float32)
+    denom = max_val - min_val
+    denom = np.where(denom < 1e-12, 1.0, denom)
+
+    data_2d = (data_2d - min_val) / denom
+
+    # reshape back
+    if len(original_shape) == 3:
+        data_out = data_2d.reshape(original_shape)
     else:
-        data = (data - min_val) / (max_val - min_val + 1e-8)
+        data_out = data_2d
 
-    if clip:
-        data = np.clip(data, 0.0, 1.0)
-
-    return data.astype(np.float32), min_val, max_val
+    return data_out.astype(np.float32), min_val, max_val
 
 
 # =========================================================

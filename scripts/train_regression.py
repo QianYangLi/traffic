@@ -4,6 +4,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 import torch
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from data.dataset import (
@@ -13,7 +14,7 @@ from data.dataset import (
     TrafficDataset
 )
 
-from model.predictor_spatiotemporal import TrafficPredictorSpatioTemporal
+from model.predictor_spatiotemporal_regression import TrafficPredictorSpatioTemporalRegression
 from configs.config import *
 
 
@@ -40,108 +41,61 @@ def main():
 
     A_static = torch.eye(num_nodes)
 
-    model = TrafficPredictorSpatioTemporal(
+    model = TrafficPredictorSpatioTemporalRegression(
         in_dim=dim,
         hidden_dim=HIDDEN_DIM,
         out_dim=dim,
         num_nodes=num_nodes,
-        A_static=A_static,
-        aux_weight=0.1
+        A_static=A_static
     ).to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=LR)
 
     best_val_loss = float("inf")
-    save_path = "best_model_xml_spatial.pt"
+    save_path = "best_model_xml_regression.pt"
 
     for epoch in range(EPOCHS):
         model.train()
         train_loss = 0.0
-        train_diff_loss = 0.0
-        train_aux_loss = 0.0
 
         for x, y in train_loader:
-            x = x.to(device)                  # [B, hist_len, 529]
-            y = y.to(device)                  # [B, 1, 529]
+            x = x.to(device)              # [B, T, D]
+            y = y.to(device).squeeze(1)   # [B, D]
 
-            x_last = x[:, -1, :]
-            y_true = y.squeeze(1)
+            pred = model(x)
 
-            # diffusion Ñ§²Ð²î
-            delta_target = y_true - x_last
-
-            t = torch.randint(
-                0,
-                DIFFUSION_STEPS,
-                (x.size(0),),
-                device=device
-            )
-
-            loss, diff_loss, aux_loss = model(
-                x,
-                delta_target,
-                t,
-                y_true=y_true
-            )
+            # Huber / smooth L1
+            loss = F.smooth_l1_loss(pred, y)
 
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
             train_loss += loss.item()
-            train_diff_loss += diff_loss.item()
-            train_aux_loss += aux_loss.item()
 
         train_loss /= len(train_loader)
-        train_diff_loss /= len(train_loader)
-        train_aux_loss /= len(train_loader)
 
         model.eval()
         val_loss = 0.0
-        val_diff_loss = 0.0
-        val_aux_loss = 0.0
 
         with torch.no_grad():
             for x, y in val_loader:
                 x = x.to(device)
-                y = y.to(device)
+                y = y.to(device).squeeze(1)
 
-                x_last = x[:, -1, :]
-                y_true = y.squeeze(1)
-                delta_target = y_true - x_last
-
-                t = torch.randint(
-                    0,
-                    DIFFUSION_STEPS,
-                    (x.size(0),),
-                    device=device
-                )
-
-                loss, diff_loss, aux_loss = model(
-                    x,
-                    delta_target,
-                    t,
-                    y_true=y_true
-                )
+                pred = model(x)
+                loss = F.smooth_l1_loss(pred, y)
 
                 val_loss += loss.item()
-                val_diff_loss += diff_loss.item()
-                val_aux_loss += aux_loss.item()
 
         val_loss /= len(val_loader)
-        val_diff_loss /= len(val_loader)
-        val_aux_loss /= len(val_loader)
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             torch.save(model.state_dict(), save_path)
             print(f"Model saved at epoch {epoch}: {save_path}")
 
-        print(
-            f"Epoch {epoch} | "
-            f"Train Total {train_loss:.6f} | Train Diff {train_diff_loss:.6f} | Train Aux {train_aux_loss:.6f} | "
-            f"Val Total {val_loss:.6f} | Val Diff {val_diff_loss:.6f} | Val Aux {val_aux_loss:.6f}"
-        )
+        print(f"Epoch {epoch} | Train Loss {train_loss:.6f} | Val Loss {val_loss:.6f}")
 
     print("Training finished.")
     print("Best Val Loss:", best_val_loss)

@@ -37,7 +37,7 @@ def main():
     print("Using device:", device)
 
     # =========================================================
-    # 2. Load G?ANT/XML dataset
+    # 2. Load dataset
     # =========================================================
     data = load_dataset("data/traffic_martixes")
 
@@ -50,13 +50,13 @@ def main():
     test_data, _, _ = normalize(test_data, stat_a, stat_b)
 
     # =========================================================
-    # 4. Build test dataset
+    # 4. Dataset
     # =========================================================
     test_set = TrafficDataset(test_data, HISTORY_LEN, PRED_LEN)
     test_loader = DataLoader(test_set, batch_size=BATCH_SIZE, shuffle=False)
 
     # =========================================================
-    # 5. Build model
+    # 5. Model
     # =========================================================
     num_nodes = data.shape[1]
     dim = data.shape[1] * data.shape[2]
@@ -68,46 +68,97 @@ def main():
         hidden_dim=HIDDEN_DIM,
         out_dim=dim,
         num_nodes=num_nodes,
-        A_static=A_static
+        A_static=A_static,
+        aux_weight=0.1
     ).to(device)
 
     model_path = "best_model_xml_spatial.pt"
     if not os.path.exists(model_path):
-        raise FileNotFoundError(
-            f"Cannot find {model_path}. Please run train_spatial.py first."
-        )
+        raise FileNotFoundError(f"Cannot find {model_path}")
 
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.eval()
 
     # =========================================================
-    # 6. Test loop
+    # 6. Inference
     # =========================================================
-    preds_all = []
+    preds_mean_all = []
+    preds_median_all = []
+    preds_aux_all = []
     trues_all = []
+    x_last_all = []
 
     with torch.no_grad():
         for x, y in test_loader:
-            x = x.to(device)                 # [B, hist_len, 529]
-            y = y.to(device)                 # [B, 1, 529]
+            x = x.to(device)
+            y = y.to(device)
 
-            # 多次采样后取均值作为最终预测
-            samples = model.predict(x, samples=SAMPLES)     # list of [B, 529]
-            pred = torch.stack(samples, dim=0).mean(dim=0)  # [B, 529]
+            x_last = x[:, -1, :]
+            y_true = y.squeeze(1)
 
-            preds_all.append(pred.cpu())
-            trues_all.append(y.squeeze(1).cpu())
+            # ===== Diffusion =====
+            samples = model.predict(x, samples=SAMPLES)
+            samples = torch.stack(samples, dim=0)  # [S, B, D]
 
-    preds_all = torch.cat(preds_all, dim=0)
+            delta_mean = samples.mean(dim=0)
+            delta_median = samples.median(dim=0).values
+
+            pred_mean = x_last + delta_mean
+            pred_median = x_last + delta_median
+
+            # ===== Auxiliary Head =====
+            pred_aux = model.predict_aux(x)
+
+            # ===== Collect =====
+            preds_mean_all.append(pred_mean.cpu())
+            preds_median_all.append(pred_median.cpu())
+            preds_aux_all.append(pred_aux.cpu())
+            trues_all.append(y_true.cpu())
+            x_last_all.append(x_last.cpu())
+
+    # concat
+    preds_mean_all = torch.cat(preds_mean_all, dim=0)
+    preds_median_all = torch.cat(preds_median_all, dim=0)
+    preds_aux_all = torch.cat(preds_aux_all, dim=0)
     trues_all = torch.cat(trues_all, dim=0)
+    x_last_all = torch.cat(x_last_all, dim=0)
 
     # =========================================================
     # 7. Metrics
     # =========================================================
     print("===== Spatial-Temporal XML Test Metrics =====")
-    print("MAE :", mae(preds_all, trues_all).item())
-    print("MSE :", mse(preds_all, trues_all).item())
-    print("RMSE:", rmse(preds_all, trues_all).item())
+
+    print("\n--- Diffusion + MEAN ---")
+    print("MAE :", mae(preds_mean_all, trues_all).item())
+    print("MSE :", mse(preds_mean_all, trues_all).item())
+    print("RMSE:", rmse(preds_mean_all, trues_all).item())
+
+    print("\n--- Diffusion + MEDIAN ---")
+    print("MAE :", mae(preds_median_all, trues_all).item())
+    print("MSE :", mse(preds_median_all, trues_all).item())
+    print("RMSE:", rmse(preds_median_all, trues_all).item())
+
+    print("\n--- Auxiliary Head ---")
+    print("MAE :", mae(preds_aux_all, trues_all).item())
+    print("MSE :", mse(preds_aux_all, trues_all).item())
+    print("RMSE:", rmse(preds_aux_all, trues_all).item())
+
+    # =========================================================
+    # 8. DEBUG（关键）
+    # =========================================================
+    print("\n===== DEBUG CHECK =====")
+
+    print("pred_aux shape:", preds_aux_all.shape)
+    print("true shape:", trues_all.shape)
+
+    print("pred_aux min/max:", preds_aux_all.min().item(), preds_aux_all.max().item())
+    print("true min/max:", trues_all.min().item(), trues_all.max().item())
+    print("x_last min/max:", x_last_all.min().item(), x_last_all.max().item())
+
+    print("\n--- Difference Check ---")
+    print("aux vs true :", torch.mean(torch.abs(preds_aux_all - trues_all)).item())
+    print("aux vs x_last:", torch.mean(torch.abs(preds_aux_all - x_last_all)).item())
+    print("true vs x_last:", torch.mean(torch.abs(trues_all - x_last_all)).item())
 
 
 if __name__ == "__main__":

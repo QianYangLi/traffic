@@ -2,18 +2,21 @@ import torch
 import torch.nn as nn
 
 
-class GatedFusion(nn.Module):
+class ResidualFusion(nn.Module):
     """
-    Fuse temporal and spatial features:
-        h = z * h_t + (1-z) * h_s
+    Temporal feature as main branch, spatial feature as enhancement.
+
+    h = h_t + z * proj(h_s)
     """
     def __init__(self, dim):
         super().__init__()
-        self.w_t = nn.Linear(dim, dim)
-        self.w_s = nn.Linear(dim, dim)
-        self.sigmoid = nn.Sigmoid()
+        self.proj = nn.Linear(dim, dim)
+        self.gate = nn.Sequential(
+            nn.Linear(dim * 2, dim),
+            nn.Sigmoid()
+        )
 
     def forward(self, h_t, h_s):
-        z = self.sigmoid(self.w_t(h_t) + self.w_s(h_s))
-        h = z * h_t + (1.0 - z) * h_s
+        z = self.gate(torch.cat([h_t, h_s], dim=-1))
+        h = h_t + z * self.proj(h_s)
         return h
