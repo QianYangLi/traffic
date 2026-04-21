@@ -61,7 +61,12 @@ def main():
     num_nodes = data.shape[1]
     dim = data.shape[1] * data.shape[2]
 
-    A_static = torch.eye(num_nodes)
+    from data.dataset import build_correlation_graph
+
+# 使用训练数据构图（非常重要）
+    A_np = build_correlation_graph(train_data, method="row", threshold=0.3)
+
+    A_static = torch.tensor(A_np, dtype=torch.float32).to(device)
 
     model = TrafficPredictorSpatioTemporal(
         in_dim=dim,

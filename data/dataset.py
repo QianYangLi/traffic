@@ -263,3 +263,44 @@ class TrafficVectorDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.X[idx], self.Y[idx]
+
+def build_correlation_graph(data, method="row", threshold=None):
+    """
+    Build adjacency matrix based on node correlation.
+
+    Args:
+        data: [T, N, N]
+        method: "row" (outgoing) or "col" (incoming)
+        threshold: float or None (sparsify graph)
+
+    Returns:
+        A: [N, N]
+    """
+
+    T, N, _ = data.shape
+
+    if method == "row":
+        node_series = data.sum(axis=2)   # [T, N]
+
+    elif method == "col":
+        node_series = data.sum(axis=1)   # [T, N]
+
+    else:
+        raise ValueError("method must be 'row' or 'col'")
+
+    node_series = node_series.T  # [N, T]
+
+    # correlation
+    A = np.corrcoef(node_series)
+
+    # NaN -> 0
+    A = np.nan_to_num(A)
+
+    # [-1,1] -> [0,1]
+    A = (A + 1) / 2
+
+    # sparsify
+    if threshold is not None:
+        A[A < threshold] = 0.0
+
+    return A.astype(np.float32)
