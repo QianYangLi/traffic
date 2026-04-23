@@ -1,0 +1,10 @@
+nohup: 忽略输入
+Using device: cuda
+Traceback (most recent call last):
+  File "/data/lwx/traffic_diffusion/scripts/train_gwn.py", line 129, in <module>
+    main()
+  File "/data/lwx/traffic_diffusion/scripts/train_gwn.py", line 37, in main
+    data = load_dataset("data/traffic_martixes")
+  File "/data/lwx/traffic_diffusion/data/dataset.py", line 47, in load_dataset
+    for f in os.listdir(folder)
+FileNotFoundError: [Errno 2] No such file or directory: 'data/traffic_martixes'
